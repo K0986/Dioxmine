@@ -1,0 +1,6 @@
+{
+  "name": "Dioxamine",
+  "description": "Android application for device management, ADB & Fastboot toolsets, Scrcpy mirroring, and system administration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
