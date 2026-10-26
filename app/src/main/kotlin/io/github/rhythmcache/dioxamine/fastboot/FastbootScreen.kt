@@ -15,6 +15,9 @@ import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.BackHandler
+import io.github.rhythmcache.dioxamine.core.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -32,10 +35,16 @@ private enum class FastbootTopTab(val labelRes: Int) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FastbootScreen(vm: FastbootViewModel) {
-    var topTab by remember { mutableStateOf(FastbootTopTab.ACTIONS) }
+    var topTab by rememberSaveable { mutableStateOf(FastbootTopTab.ACTIONS) }
+
+    BackHandler(enabled = topTab != FastbootTopTab.ACTIONS) { topTab = FastbootTopTab.ACTIONS }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        FastbootDeviceConnectorCard(vm)
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+            Text(stringResource(R.string.fastboot_workspace_title), style = MaterialTheme.typography.headlineMedium)
+            Text(stringResource(R.string.fastboot_workspace_desc), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (vm.devices.isNotEmpty()) FastbootDeviceConnectorCard(vm)
 
         PrimaryTabRow(selectedTabIndex = topTab.ordinal) {
             FastbootTopTab.entries.forEach { tab ->
@@ -227,40 +236,40 @@ private val tileSpecs = listOf(
 
 @Composable
 fun FastbootActionsTab(vm: FastbootViewModel) {
-    var activeSubScreen by remember { mutableStateOf<FastbootSubScreen>(FastbootSubScreen.TilesList) }
+    var activeSubScreen by rememberSaveable { mutableStateOf(FastbootSubScreen.TilesList) }
     val isConnected = vm.isConnected
+    BackHandler(enabled = activeSubScreen != FastbootSubScreen.TilesList) { activeSubScreen = FastbootSubScreen.TilesList }
 
     when (val screen = activeSubScreen) {
         FastbootSubScreen.TilesList -> {
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 if (!isConnected) {
-                    Text(
-                        text = stringResource(R.string.fastboot_no_device_warning),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
-                }
-
-                OperationStatusCard(
-                    status = vm.lastOperationStatus,
-                    onDismiss = { vm.clearOperationStatus() },
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(tileSpecs) { spec ->
-                        FastbootActionTile(
-                            icon = spec.icon,
-                            title = stringResource(spec.titleRes),
-                            description = stringResource(spec.descriptionRes),
-                            enabled = isConnected,
-                            onClick = {
-                                vm.clearOperationStatus()
-                                activeSubScreen = spec.destination
-                            },
-                        )
+                    item {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = MaterialTheme.shapes.extraLarge) {
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    AccentIcon(Icons.Filled.Usb, MaterialTheme.colorScheme.tertiary)
+                                    StatusPill(stringResource(R.string.fastboot_waiting), MaterialTheme.colorScheme.tertiary)
+                                }
+                                Text(stringResource(R.string.fastboot_connect_title), style = MaterialTheme.typography.titleLarge)
+                                Text(stringResource(R.string.fastboot_connect_desc), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
+                }
+                item { OperationStatusCard(status = vm.lastOperationStatus, onDismiss = { vm.clearOperationStatus() }) }
+                items(tileSpecs) { spec ->
+                    FastbootActionTile(
+                        icon = spec.icon,
+                        title = stringResource(spec.titleRes),
+                        description = stringResource(spec.descriptionRes),
+                        enabled = isConnected,
+                        onClick = { vm.clearOperationStatus(); activeSubScreen = spec.destination },
+                    )
                 }
             }
         }

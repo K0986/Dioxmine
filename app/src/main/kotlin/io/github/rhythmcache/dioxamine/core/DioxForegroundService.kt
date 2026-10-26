@@ -205,7 +205,7 @@ class DioxForegroundService : Service() {
             }
 
             return NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.duckport_notification)
                 .setContentTitle(context.getString(R.string.notification_keep_alive_title))
                 .setContentText(contentText)
                 .setContentIntent(contentPendingIntent)

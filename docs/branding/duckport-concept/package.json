@@ -1,0 +1,13 @@
+{
+  "name": "duckport-branding",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Development-only vector and Android icon generation tools",
+  "scripts": {
+    "preview": "node create-assets.cjs",
+    "apply-android": "node apply-android-branding.cjs"
+  },
+  "devDependencies": {
+    "sharp": "0.35.5"
+  }
+}

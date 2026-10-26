@@ -1,18 +1,43 @@
 *.iml
 .gradle
-.kotlin
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+/.idea/
 .DS_Store
 /build
 /captures
 .externalNativeBuild
 .cxx
 local.properties
+.kotlin/
+**/build/
+app/build/**
+
+# Generated asset binaries
+app/src/main/assets/diox-agent.jar
+app/src/main/assets/dxls/
+# Keep the tested scrcpy server asset for source archives without submodules.
+
+# Local credentials and signing / ADB identities
 .env
-debug.keystore
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+adbkey
+adbkey.pub
+
+# Generated packages, dependencies, reports and local QA workspaces
+*.apk
+*.aab
+*.apks
+node_modules/
+/deliverables/
+/docs/book/
+/docs/ui-redesign/lint-report.html
+/.android-ui-qa/
+/.redesign-backup/
+*.log

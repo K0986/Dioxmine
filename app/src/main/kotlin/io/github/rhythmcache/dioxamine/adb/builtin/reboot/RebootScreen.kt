@@ -90,93 +90,56 @@ fun RebootScreen(
     val client = vm.activeClient()
     val activeConn = vm.devices[vm.activeDeviceId]
 
+    var pendingReboot by remember { mutableStateOf<AdbRebootOption?>(null) }
+    var pendingDeviceId by remember { mutableStateOf<String?>(null) }
+
+    pendingReboot?.let { option ->
+        val title = stringResource(option.titleRes)
+        val executingMessage = stringResource(R.string.adb_reboot_executing, title)
+        AlertDialog(
+            onDismissRequest = { pendingReboot = null },
+            icon = { Icon(Icons.Filled.RestartAlt, null) },
+            title = { Text(stringResource(R.string.reboot_confirm_title)) },
+            text = { Text(stringResource(R.string.reboot_confirm_message, title, activeConn?.label.orEmpty())) },
+            confirmButton = {
+                Button(
+                    enabled = client != null && activeConn?.id == pendingDeviceId,
+                    onClick = {
+                        pendingReboot = null
+                        val targetClient = client ?: return@Button
+                        val targetConn = activeConn ?: return@Button
+                        Toast.makeText(context, executingMessage, Toast.LENGTH_SHORT).show()
+                        coroutineScope.launch(Dispatchers.IO) {
+                            runCatching { targetClient.executeShell(option.shellCommand, targetConn.supportsShellV2) }
+                        }
+                    },
+                ) { Text(title) }
+            },
+            dismissButton = { TextButton(onClick = { pendingReboot = null }) { Text(stringResource(R.string.btn_cancel)) } },
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(stringResource(R.string.adb_reboot_tile_title)) },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null
-                    )
-                }
-            },
-            windowInsets = WindowInsets(0, 0, 0, 0)
+            navigationIcon = { IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_nav_back))
+            } },
+            windowInsets = WindowInsets(0, 0, 0, 0),
         )
-
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(rebootOptions) { option ->
-                val titleText = stringResource(option.titleRes)
-                
-                fun executeReboot() {
-                    val targetClient = client ?: return
-                    val targetConn = activeConn ?: return
-                    Toast.makeText(context, context.getString(R.string.adb_reboot_executing, titleText), Toast.LENGTH_SHORT).show()
-                    coroutineScope.launch(Dispatchers.IO) {
-                        runCatching {
-                            targetClient.executeShell(option.shellCommand, targetConn.supportsShellV2)
-                        }
-                    }
-                }
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = client != null, onClick = { executeReboot() }),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = option.icon,
-                            contentDescription = null,
-                            tint = if (client != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                            modifier = Modifier.size(24.dp)
-                        )
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = titleText,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (client != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = stringResource(option.descriptionRes),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (client != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        IconButton(
-                            enabled = client != null,
-                            onClick = { executeReboot() }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = titleText,
-                                tint = if (client != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-                }
+                AdbActionTile(
+                    title = stringResource(option.titleRes),
+                    description = stringResource(option.descriptionRes),
+                    icon = option.icon,
+                    enabled = client != null,
+                    onClick = { pendingDeviceId = activeConn?.id; pendingReboot = option },
+                )
             }
         }
     }

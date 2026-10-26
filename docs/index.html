@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dioxamine - Run ADB, Fastboot and Scrcpy on Android</title>
+  <meta name="description" content="Run ADB, Fastboot and Scrcpy directly on Android. Control devices, mirror screens, flash partitions over USB OTG, and execute custom Web plugins without a computer.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #111110;
+      --bg-alt: #161614;
+      --bg-panel: #1c1c19;
+      
+      --border: rgba(255, 255, 255, 0.08);
+      --border-subtle: rgba(255, 255, 255, 0.05);
+      --border-hover: rgba(255, 255, 255, 0.2);
+
+      --text-bright: #f5f5f3;
+      --text-main: #b8b8b0;
+      --text-muted: #787870;
+      --text-faint: #4c4c45;
+
+      --accent: #4ade80;
+      --accent-dim: #22543d;
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      color-scheme: dark;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Minimal Top Navigation */
+    header {
+      border-bottom: 1px solid var(--border);
+      background-color: var(--bg);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-bright);
+    }
+
+    .brand-logo {
+      width: 26px;
+      height: 26px;
+      border-radius: var(--radius-sm);
+      object-fit: cover;
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .nav-menu {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+    }
+
+    .nav-link {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+
+    .nav-link:hover {
+      color: var(--text-bright);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      background: transparent;
+      border: 1px solid var(--border);
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+
+    .icon-btn:hover {
+      color: var(--text-bright);
+      background-color: var(--bg-alt);
+      border-color: var(--border-hover);
+    }
+
+    .btn-solid {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      background-color: var(--text-bright);
+      color: var(--bg);
+      text-decoration: none;
+      border: 1px solid var(--text-bright);
+      transition: background-color 0.15s ease;
+    }
+
+    .btn-solid:hover {
+      background-color: #dfdfd9;
+    }
+
+    .btn-outline {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      background-color: transparent;
+      color: var(--text-bright);
+      border: 1px solid var(--border);
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+
+    .btn-outline:hover {
+      background-color: var(--bg-alt);
+      border-color: var(--border-hover);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 64px 0 40px;
+    }
+
+    .hero-label {
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+    }
+
+    .hero-heading {
+      font-size: clamp(32px, 4.5vw, 46px);
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: -0.025em;
+      color: var(--text-bright);
+      margin-bottom: 16px;
+      max-width: 820px;
+    }
+
+    .hero-lead {
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 680px;
+      margin-bottom: 28px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+
+    /* Minimal Terminal Pane */
+    .console-pane {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background-color: var(--bg-alt);
+      overflow: hidden;
+      margin-bottom: 72px;
+    }
+
+    .console-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background-color: #141412;
+    }
+
+    .console-title {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text-faint);
+    }
+
+    .console-tabs {
+      display: flex;
+      gap: 2px;
+    }
+
+    .tab-item {
+      padding: 3px 8px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+    }
+
+    .tab-item.active {
+      color: var(--text-bright);
+      background-color: var(--bg-panel);
+    }
+
+    .console-content {
+      padding: 16px 20px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.65;
+      background-color: #0e0e0d;
+      min-height: 140px;
+    }
+
+    .prompt-sym { color: var(--accent); }
+    .cmd-text { color: var(--text-bright); }
+    .cmd-out { color: var(--text-muted); }
+    .cmd-ok { color: #86efac; }
+
+    /* Editorial Modules Section (No squary boxes) */
+    .module-section {
+      margin-bottom: 64px;
+    }
+
+    .module-header {
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+    }
+
+    .module-header-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-bright);
+      letter-spacing: -0.015em;
+    }
+
+    .module-row {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 40px;
+      padding: 24px 0;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .module-row:last-child {
+      border-bottom: none;
+    }
+
+    .module-meta h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 6px;
+    }
+
+    .module-meta p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .module-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .feature-point {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      font-size: 14px;
+    }
+
+    .bullet-dash {
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+    .point-text {
+      color: var(--text-main);
+    }
+
+    .point-link {
+      color: var(--text-bright);
+      text-decoration: underline;
+      text-decoration-color: var(--border);
+      text-underline-offset: 3px;
+      font-size: 13px;
+      margin-left: 6px;
+      white-space: nowrap;
+    }
+
+    .point-link:hover {
+      text-decoration-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Documentation Index (Editorial Table of Contents) */
+    .index-section {
+      padding: 36px 0;
+      border-top: 1px solid var(--border);
+      margin-bottom: 64px;
+    }
+
+    .index-header {
+      margin-bottom: 24px;
+    }
+
+    .index-heading {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-bright);
+      margin-bottom: 4px;
+    }
+
+    .index-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .index-columns {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      margin-top: 20px;
+    }
+
+    .index-col-title {
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .index-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .index-item-link {
+      font-size: 13px;
+      color: var(--text-main);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+      transition: color 0.15s ease;
+    }
+
+    .index-item-link:hover {
+      color: var(--accent);
+    }
+
+    /* Minimal Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0 48px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 20px;
+    }
+
+    .footer-link {
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    .footer-link:hover {
+      color: var(--text-bright);
+    }
+
+    @media (max-width: 768px) {
+      .nav-menu { display: none; }
+      .hero { padding: 40px 0 24px; }
+      .module-row { grid-template-columns: 1fr; gap: 12px; }
+      .index-columns { grid-template-columns: 1fr; gap: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Minimal Header -->
+  <header>
+    <div class="container">
+      <div class="nav-inner">
+        <a href="./index.html" class="brand">
+          <img src="./assets/logo.png" alt="Dioxamine" class="brand-logo">
+          <span class="brand-title">Dioxamine</span>
+        </a>
+
+        <nav class="nav-menu">
+          <a href="./book/user-guide/getting-started.html" class="nav-link">User Guide</a>
+          <a href="./book/user-guide/connecting-devices.html" class="nav-link">Connection</a>
+          <a href="./book/user-guide/scrcpy-mirroring/screen-mirroring.html" class="nav-link">Scrcpy</a>
+          <a href="./book/user-guide/fastboot/getting-started.html" class="nav-link">Fastboot</a>
+          <a href="./book/plugins/overview.html" class="nav-link">Plugins</a>
+        </nav>
+
+        <div class="nav-actions">
+          <a href="https://github.com/rhythmcache/Dioxamine" target="_blank" rel="noopener" class="icon-btn" title="GitHub Repository">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+            </svg>
+          </a>
+          <a href="https://t.me/tr1ple_fault" target="_blank" rel="noopener" class="icon-btn" title="Telegram Community">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </a>
+          <a href="./book/index.html" class="btn-solid">Documentation</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-label">Android Toolkit & Runtime</div>
+      <h1 class="hero-heading">Run ADB, Fastboot and Scrcpy directly on your phone.</h1>
+      <p class="hero-lead">
+        Control secondary devices, mirror displays with low latency, stream camera feeds, flash Fastboot firmware over USB OTG, and execute custom Web plugins without needing a computer.
+      </p>
+
+      <div class="hero-buttons">
+        <a href="https://github.com/rhythmcache/Dioxamine/releases/latest" target="_blank" rel="noopener" class="btn-solid">Download APK</a>
+        <a href="./book/user-guide/getting-started.html" class="btn-outline">Explore User Guide</a>
+        <a href="./book/plugins/overview.html" class="btn-outline">Plugin Developer Guide</a>
+      </div>
+    </section>
+
+    <!-- Clean Console Box -->
+    <section class="console-pane">
+      <div class="console-bar">
+        <span class="console-title">dioxamine-terminal</span>
+        <div class="console-tabs">
+          <button class="tab-item active" onclick="showConsole('adb')">ADB</button>
+          <button class="tab-item" onclick="showConsole('scrcpy')">Scrcpy</button>
+          <button class="tab-item" onclick="showConsole('fastboot')">Fastboot</button>
+          <button class="tab-item" onclick="showConsole('plugin')">Plugin API</button>
+        </div>
+      </div>
+      <div class="console-content" id="console-stream">
+        <div><span class="prompt-sym">$ </span><span class="cmd-text">adb connect 192.168.1.50:5555</span></div>
+        <div class="cmd-ok">connected to 192.168.1.50:5555 [Google Pixel 8 Pro, Android 14]</div>
+        <div><span class="prompt-sym">$ </span><span class="cmd-text">adb shell pm list packages -3</span></div>
+        <div class="cmd-out">package:org.videolan.vlc</div>
+        <div class="cmd-out">package:com.wireguard.android</div>
+        <div><span class="prompt-sym">$ </span><span class="cmd-text">adb pull /sdcard/Download/backup.zip ./</span></div>
+        <div class="cmd-ok">[100%] /sdcard/Download/backup.zip (42 MB pulled)</div>
+      </div>
+    </section>
+
+    <!-- Editorial Feature Breakdown (Asymmetrical & Flowing) -->
+    <section class="module-section">
+      <div class="module-header">
+        <h2 class="module-header-title">Toolchain & Core Architecture</h2>
+      </div>
+
+      <!-- Row 1: Connection -->
+      <div class="module-row">
+        <div class="module-meta">
+          <h3>Connectivity & Transport</h3>
+          <p>Flexible transport negotiation over wired cables or local wireless networks.</p>
+        </div>
+        <div class="module-body">
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>USB OTG Host:</strong> Direct hardware cable connection with automatic device authorization and permission negotiation.
+              <a href="./book/user-guide/connecting-devices.html" class="point-link">Connection guide</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Wireless ADB:</strong> mDNS auto-discovery, Android 11+ QR pairing, 6-digit PIN codes, and persistent TCP/IP port 5555.
+              <a href="./book/user-guide/oem-setup.html" class="point-link">OEM setup</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Multi-Device Scope:</strong> Seamless multi-device management with top-chip device switching across all ADB, Fastboot, and plugin sessions.
+              <a href="./book/user-guide/connecting-devices.html" class="point-link">Multi-device</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2: ADB Tools -->
+      <div class="module-row">
+        <div class="module-meta">
+          <h3>ADB Built-in Tools</h3>
+          <p>Complete device management utilities running directly on the target.</p>
+        </div>
+        <div class="module-body">
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>File & Storage Management:</strong> Full internal/external storage explorer with push, pull, recursive directory management, and Storage Access Framework (SAF) integration.
+              <a href="./book/user-guide/adb-tools/file-manager.html" class="point-link">File manager</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Package Manager & Split APKs:</strong> Install standalone APKs and split bundles (.apks, .xapk, .apkm), export APKs, uninstall, and disable bloatware.
+              <a href="./book/user-guide/adb-tools/package-manager.html" class="point-link">Package manager</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Hardware Input & Controls:</strong> Trackpad with multi-touch gestures (pinch, scroll, tap), full PC keyboard with sticky Ctrl/Alt/Esc/Tab modifier latches, and Android TV D-pad remote.
+              <a href="./book/user-guide/adb-tools/touchpad-keyboard.html" class="point-link">Touchpad guide</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Process Manager & Telemetry:</strong> Real-time CPU and memory metrics, running process inspector with one-tap termination, live streaming Logcat, and hardware battery specs.
+              <a href="./book/user-guide/adb-tools/process-manager.html" class="point-link">Process manager</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Terminal & Maintenance:</strong> Interactive ANSI PTY terminal shell, instant screencap capture, OTA sideloading, rescue mode, and power reboot targets.
+              <a href="./book/user-guide/adb-tools/terminal-shell.html" class="point-link">Terminal shell</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Scrcpy -->
+      <div class="module-row">
+        <div class="module-meta">
+          <h3>Scrcpy 4.1 Engine</h3>
+          <p>Low-latency screen mirroring and camera video forwarding.</p>
+        </div>
+        <div class="module-body">
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Display Mirroring:</strong> H.264, H.265 (HEVC), and AV1 video encoding up to 120 FPS with touch forwarding, mouse simulation, and screen-off power saving.
+              <a href="./book/user-guide/scrcpy-mirroring/screen-mirroring.html" class="point-link">Mirroring details</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Audio Forwarding:</strong> Opus/AAC streaming on Android 11+ and non-muting audio duplication on Android 13+.
+              <a href="./book/user-guide/scrcpy-mirroring/settings-tuning.html" class="point-link">Audio settings</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Camera Streaming:</strong> Direct hardware sensor streaming from front, back, or external lenses at high framerates with remote torch control and zoom.
+              <a href="./book/user-guide/scrcpy-mirroring/camera-streaming.html" class="point-link">Camera mode</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Session Recording:</strong> Direct MP4 recording of mirroring or camera streams directly to device storage with in-app playback viewer and export.
+              <a href="./book/user-guide/scrcpy-mirroring/session-recording.html" class="point-link">Recording guide</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 4: Fastboot -->
+      <div class="module-row">
+        <div class="module-meta">
+          <h3>Fastboot Protocol</h3>
+          <p>USB OTG bootloader maintenance and partition recovery.</p>
+        </div>
+        <div class="module-body">
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Partition Flashing:</strong> Flash boot, recovery, init_boot, vendor_boot, system, and super images with real-time transfer progress.
+              <a href="./book/user-guide/fastboot/flashing-images.html" class="point-link">Flashing guide</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Live Boot & Lock State:</strong> Test boot kernels without permanent writes, manage bootloader unlock states, and inspect hardware variables.
+              <a href="./book/user-guide/fastboot/boot-image.html" class="point-link">Live booting</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Variables & Command Shell:</strong> Inspect full hardware device variables (getvar all), partition erase, slot switching (set_active a/b), and custom raw command execution.
+              <a href="./book/user-guide/fastboot/variables.html" class="point-link">Variables inspector</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 5: Plugins -->
+      <div class="module-row">
+        <div class="module-meta">
+          <h3>Web Plugin Runtime</h3>
+          <p>Modular HTML5, CSS, and JavaScript extensions with rich native bridge.</p>
+        </div>
+        <div class="module-body">
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Native Bridge API:</strong> Asynchronous JavaScript runtime (window.dioxamine) connecting web applications directly to native ADB and Fastboot drivers without a computer.
+              <a href="./book/plugins/api-reference.html" class="point-link">Bridge reference</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Interactive Shell Streams (PTY):</strong> Bi-directional live terminal streaming via dioxamine.adb.openInteractiveShell() with dynamic window resizing and full xterm.js integration.
+              <a href="./book/plugins/api/interactive-shell.html" class="point-link">Interactive shell</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Native Haptics & UI Controls:</strong> Native tactile feedback API (dioxamine.haptics.impact(), dioxamine.haptics.selection(), dioxamine.vibrate()) and hardware Back/Volume button interception.
+              <a href="./book/plugins/api/ui.html" class="point-link">Haptics & UI</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Fastboot Protocol Operations:</strong> Flash partitions, reboot targets, inspect variables, and stage binary payloads directly from plugin JavaScript.
+              <a href="./book/plugins/api/fastboot.html" class="point-link">Fastboot API</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Chunked Storage & HTTP Fetch:</strong> Chunked temporary file streams (dioxamine.tempFile) for streaming gigabyte payloads without RAM limits, and zero-CORS network requests via dioxamine.http.fetch().
+              <a href="./book/plugins/api/files.html" class="point-link">File operations</a>
+            </div>
+          </div>
+          <div class="feature-point">
+            <span class="bullet-dash">&gt;</span>
+            <div class="point-text">
+              <strong>Plugin Store & Auto-Updates:</strong> In-app registry to browse, install, and automatically update plugins (updateJson) with an open community submission pipeline.
+              <a href="./book/plugins/manifest.html" class="point-link">Plugin updates</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Table of Contents Index (Book-Style List) -->
+    <section class="index-section">
+      <div class="index-header">
+        <h3 class="index-heading">Manual Index</h3>
+        <p class="index-sub">Direct table of contents linking all documentation chapters.</p>
+      </div>
+
+      <div class="index-columns">
+        <!-- Col 1 -->
+        <div>
+          <div class="index-col-title">Getting Started & Connection</div>
+          <ul class="index-list">
+            <li><a href="./book/user-guide/getting-started.html" class="index-item-link">Overview & Setup</a></li>
+            <li><a href="./book/user-guide/connecting-devices.html" class="index-item-link">Connection Methods (OTG & Wi-Fi)</a></li>
+            <li><a href="./book/user-guide/oem-setup.html" class="index-item-link">OEM Setup (HyperOS, Samsung)</a></li>
+            <li><a href="./book/user-guide/app-settings/adb-keys.html" class="index-item-link">ADB Key Management</a></li>
+            <li><a href="./book/user-guide/app-settings/appearance.html" class="index-item-link">Appearance & Monet Theme</a></li>
+            <li><a href="./book/user-guide/app-settings/logs-export.html" class="index-item-link">Application Logs & Diagnostics</a></li>
+            <li><a href="./book/user-guide/app-settings/plugin-security.html" class="index-item-link">Plugin Security & Permissions</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 2 -->
+        <div>
+          <div class="index-col-title">ADB Built-in Tools & Scrcpy</div>
+          <ul class="index-list">
+            <li><a href="./book/user-guide/adb-tools/device-info.html" class="index-item-link">Device Telemetry & Specs</a></li>
+            <li><a href="./book/user-guide/adb-tools/file-manager.html" class="index-item-link">File Manager & SAF Storage</a></li>
+            <li><a href="./book/user-guide/adb-tools/package-manager.html" class="index-item-link">Package Manager & Split APKs</a></li>
+            <li><a href="./book/user-guide/adb-tools/process-manager.html" class="index-item-link">Process Manager & Task Killer</a></li>
+            <li><a href="./book/user-guide/adb-tools/touchpad-keyboard.html" class="index-item-link">UHID Touchpad & Keyboard</a></li>
+            <li><a href="./book/user-guide/adb-tools/remote-control.html" class="index-item-link">Remote Control & Android TV</a></li>
+            <li><a href="./book/user-guide/adb-tools/terminal-shell.html" class="index-item-link">ADB Terminal Shell</a></li>
+            <li><a href="./book/user-guide/scrcpy-mirroring/screen-mirroring.html" class="index-item-link">Scrcpy Screen Mirroring (4.1)</a></li>
+            <li><a href="./book/user-guide/scrcpy-mirroring/camera-streaming.html" class="index-item-link">Camera Video Streaming Mode</a></li>
+            <li><a href="./book/user-guide/scrcpy-mirroring/session-recording.html" class="index-item-link">Session Recording & MP4 Playback</a></li>
+            <li><a href="./book/user-guide/scrcpy-mirroring/logs-troubleshooting.html" class="index-item-link">Scrcpy Logs & Troubleshooting</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3 -->
+        <div>
+          <div class="index-col-title">Fastboot & Plugin Guide</div>
+          <ul class="index-list">
+            <li><a href="./book/user-guide/fastboot/getting-started.html" class="index-item-link">Fastboot Connection & Setup</a></li>
+            <li><a href="./book/user-guide/fastboot/flashing-images.html" class="index-item-link">Flashing Partition Images</a></li>
+            <li><a href="./book/user-guide/fastboot/boot-image.html" class="index-item-link">Live Booting Images</a></li>
+            <li><a href="./book/user-guide/fastboot/lock-bootloader.html" class="index-item-link">Bootloader Lock States</a></li>
+            <li><a href="./book/user-guide/fastboot/variables.html" class="index-item-link">Variables Inspector</a></li>
+            <li><a href="./book/plugins/overview.html" class="index-item-link">Plugin Architecture & Overview</a></li>
+            <li><a href="./book/plugins/quickstart.html" class="index-item-link">Quickstart: Create Your First Plugin</a></li>
+            <li><a href="./book/plugins/manifest.html" class="index-item-link">Manifest Spec & updateJson</a></li>
+            <li><a href="./book/plugins/api-reference.html" class="index-item-link">JavaScript Bridge Reference</a></li>
+            <li><a href="./book/plugins/api/interactive-shell.html" class="index-item-link">Interactive Shell Sessions (PTY)</a></li>
+            <li><a href="./book/plugins/api/ui.html" class="index-item-link">Native Haptics & UI Controls</a></li>
+            <li><a href="./book/plugins/api/fastboot.html" class="index-item-link">Fastboot Operations Bridge</a></li>
+            <li><a href="./book/plugins/api/network.html" class="index-item-link">Network HTTP Client (http.fetch)</a></li>
+            <li><a href="https://github.com/Dioxamine-plugins-repo/index" target="_blank" rel="noopener" class="index-item-link">Official Plugin Registry</a></li>
+            <li><a href="https://github.com/Dioxamine-plugins-repo/plugin-submission" target="_blank" rel="noopener" class="index-item-link">Plugin Submission Guide</a></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Minimal Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-inner">
+        <div>Dioxamine is open source software licensed under Apache 2.0.</div>
+        <div class="footer-links">
+          <a href="./book/index.html" class="footer-link">Documentation</a>
+          <a href="./book/plugins/overview.html" class="footer-link">Plugin API</a>
+          <a href="https://github.com/Dioxamine-plugins-repo/index" target="_blank" rel="noopener" class="footer-link">Plugin Store</a>
+          <a href="https://github.com/rhythmcache/Dioxamine" target="_blank" rel="noopener" class="footer-link">GitHub</a>
+          <a href="https://t.me/tr1ple_fault" target="_blank" rel="noopener" class="footer-link">Telegram</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const consoleData = {
+      adb: [
+        { type: 'cmd', text: 'adb connect 192.168.1.50:5555' },
+        { type: 'ok', text: 'connected to 192.168.1.50:5555 [Google Pixel 8 Pro, Android 14]' },
+        { type: 'cmd', text: 'adb shell pm list packages -3' },
+        { type: 'out', text: 'package:org.videolan.vlc' },
+        { type: 'out', text: 'package:com.wireguard.android' },
+        { type: 'cmd', text: 'adb pull /sdcard/Download/backup.zip ./' },
+        { type: 'ok', text: '[100%] /sdcard/Download/backup.zip (42 MB pulled)' }
+      ],
+      scrcpy: [
+        { type: 'cmd', text: 'scrcpy --video-codec=h265 --max-fps=120 --audio-dup' },
+        { type: 'out', text: '[Scrcpy 4.1] Video encoder: c2.qti.hevc.encoder (H.265 @ 120 FPS)' },
+        { type: 'out', text: '[Scrcpy 4.1] Audio encoder: c2.android.opus.encoder (Opus @ 128Kbps, Duplicated)' },
+        { type: 'out', text: '[Scrcpy 4.1] Recording session: /sdcard/Movies/scrcpy_2026-10-02.mp4' },
+        { type: 'ok', text: '[Scrcpy 4.1] Mirror session established over low-latency USB OTG' }
+      ],
+      fastboot: [
+        { type: 'cmd', text: 'fastboot devices' },
+        { type: 'out', text: '9A011FFAZ000    fastboot (Google Pixel 8 Pro)' },
+        { type: 'cmd', text: 'fastboot flash boot magisk_patched.img' },
+        { type: 'out', text: 'Sending \'boot\' (65536 KB)... OKAY [  1.42s]' },
+        { type: 'out', text: 'Writing \'boot\'... OKAY [  0.31s]' },
+        { type: 'ok', text: 'Finished. Total time: 1.73s' }
+      ],
+      plugin: [
+        { type: 'cmd', text: 'const dev = await dioxamine.adb.getActiveDevice();' },
+        { type: 'out', text: '=> { connected: true, model: "Pixel 8 Pro", apiLevel: 34, isRoot: true, supportsShellV2: true }' },
+        { type: 'cmd', text: 'const session = await dioxamine.adb.openInteractiveShell();' },
+        { type: 'out', text: '=> InteractiveShellSession (PTY allocated, xterm-256color)' },
+        { type: 'cmd', text: 'dioxamine.haptics.impact("medium");' },
+        { type: 'ok', text: '=> Native tactile haptic feedback triggered on host' }
+      ]
+    };
+
+    function showConsole(key) {
+      document.querySelectorAll('.tab-item').forEach(b => b.classList.remove('active'));
+      const activeBtn = Array.from(document.querySelectorAll('.tab-item')).find(b => b.getAttribute('onclick').includes(key));
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const container = document.getElementById('console-stream');
+      container.innerHTML = '';
+      const rows = consoleData[key] || [];
+      rows.forEach(item => {
+        const div = document.createElement('div');
+        if (item.type === 'cmd') {
+          div.innerHTML = `<span class="prompt-sym">$ </span><span class="cmd-text">${item.text}</span>`;
+        } else if (item.type === 'ok') {
+          div.className = 'cmd-ok';
+          div.textContent = item.text;
+        } else {
+          div.className = 'cmd-out';
+          div.textContent = item.text;
+        }
+        container.appendChild(div);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -2,8 +2,8 @@ package io.github.rhythmcache.dioxamine.adb.builtin.filemanager
 
 import android.content.Context
 import android.net.Uri
-import android.provider.OpenableColumns
 import android.widget.Toast
+import io.github.rhythmcache.dioxamine.core.FileUtils
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +38,7 @@ import io.github.rhythmcache.dioxamine.R
 import io.github.rhythmcache.dioxamine.adb.AdbViewModel
 import io.github.rhythmcache.dioxamine.core.AppLogger
 import io.github.rhythmcache.dioxamine.core.Constants
+import io.github.rhythmcache.dioxamine.core.formatFileSize
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -318,17 +319,11 @@ fun FileManagerScreen(
 
         coroutineScope.launch(Dispatchers.IO) {
             for (uri in uris) {
-                var fileName = "file_${System.currentTimeMillis()}"
-                var fileSize = 0L
-
-                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
-                        if (nameIdx != -1) fileName = cursor.getString(nameIdx)
-                        if (sizeIdx != -1) fileSize = cursor.getLong(sizeIdx)
-                    }
-                }
+                val (fileName, fileSize) = FileUtils.resolveNameAndSize(
+                    context,
+                    uri,
+                    defaultName = "file_${System.currentTimeMillis()}"
+                )
 
                 val remoteDest = if (currentPath == "/") "/$fileName" else "$currentPath/$fileName"
                 val pendingItem = RemoteFileItem(
@@ -949,13 +944,6 @@ private fun PropertyRow(label: String, value: String) {
         Text("$label: ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodySmall)
     }
-}
-
-private fun formatFileSize(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
-    return String.format("%.1f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
 }
 
 private fun formatMtime(epochSeconds: Long): String {

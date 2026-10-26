@@ -2,6 +2,9 @@ package io.github.rhythmcache.dioxamine.adb.discovery
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,15 +17,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.window.PopupProperties
 import io.github.rhythmcache.dioxamine.R
 import io.github.rhythmcache.dioxamine.adb.AdbViewModel
+import io.github.rhythmcache.dioxamine.adb.SavedAdbAddresses
+import io.github.rhythmcache.dioxamine.adb.isValidIp
+import io.github.rhythmcache.dioxamine.adb.isValidPort
+import io.github.rhythmcache.dioxamine.adb.isValidPairingCode
+import io.github.rhythmcache.dioxamine.adb.parseIpAndPort
 
 sealed class DiscoveryStep {
     object DeviceList : DiscoveryStep()
@@ -38,34 +50,49 @@ typealias DiscoverySheetStep = DiscoveryStep
 @Composable
 fun DiscoveryDialog(
     vm: AdbViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    initialStep: DiscoveryStep = DiscoveryStep.DeviceList,
 ) {
     val context = LocalContext.current
     val discoveryVm = remember { AdbDiscoveryViewModel(context) }
-    var step by remember { mutableStateOf<DiscoveryStep>(DiscoveryStep.DeviceList) }
+    var step by remember { mutableStateOf(initialStep) }
 
     DisposableEffect(Unit) {
         discoveryVm.startDiscovery()
         onDispose { discoveryVm.stopDiscovery() }
     }
 
+    val navigateBack: () -> Unit = {
+        when (val current = step) {
+            DiscoveryStep.DeviceList -> onDismiss()
+            DiscoveryStep.ManualChooseType -> step = DiscoveryStep.DeviceList
+            is DiscoveryStep.ManualTcp, is DiscoveryStep.ManualTlsChoice -> step = DiscoveryStep.ManualChooseType
+            is DiscoveryStep.ManualTlsPair -> step = DiscoveryStep.ManualTlsChoice(current.ip, current.port)
+            is DiscoveryStep.ManualTlsConnect -> step = DiscoveryStep.ManualTlsChoice(current.ip, current.port)
+        }
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = navigateBack,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        BackHandler(onBack = navigateBack)
         Surface(
             shape = MaterialTheme.shapes.extraLarge,
             tonalElevation = 6.dp,
             color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .heightIn(max = 560.dp)
+                .widthIn(max = 560.dp)
+                .fillMaxWidth(0.94f)
+                .imePadding()
+                .heightIn(max = 640.dp)
                 .padding(vertical = 16.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp)
             ) {
                 when (val s = step) {
@@ -167,7 +194,7 @@ private fun DeviceListStep(
                 Spacer(Modifier.width(8.dp))
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+            IconButton(onClick = onDismiss) {
                 Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.cd_close), modifier = Modifier.size(18.dp))
             }
         }
@@ -177,6 +204,7 @@ private fun DeviceListStep(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
         Spacer(Modifier.height(12.dp))
 
         val devices = discoveryVm.devices.values.toList()
@@ -304,33 +332,75 @@ private fun ManualTcpStep(
     onBack: () -> Unit,
     onConnect: (String, String) -> Unit
 ) {
-    var ip by remember { mutableStateOf(initial.ip) }
-    var port by remember { mutableStateOf(initial.port) }
-    val isValid = ip.isNotBlank() && port.toIntOrNull() != null
+    val context = LocalContext.current
+    var savedAddresses by remember {
+        mutableStateOf(SavedAdbAddresses.getAll(context))
+    }
+
+    val mostRecent = remember { savedAddresses.firstOrNull() }
+    val defaultIp = remember {
+        if (initial.ip.isNotBlank()) initial.ip
+        else mostRecent?.substringBefore(":") ?: ""
+    }
+    val defaultPort = remember {
+        if (initial.port.isNotBlank() && initial.port != "5555") initial.port
+        else mostRecent?.substringAfter(":", "5555") ?: initial.port
+    }
+
+    var ip by remember { mutableStateOf(defaultIp) }
+    var port by remember { mutableStateOf(defaultPort) }
+    val isIpValid = ip.isEmpty() || isValidIp(ip)
+    val isPortValid = port.isEmpty() || isValidPort(port)
+    val isFormValid = ip.isNotBlank() && isValidIp(ip) && isValidPort(port)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         StepHeader(stringResource(R.string.discovery_connect_tcp), onBack)
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = ip, onValueChange = { ip = it },
-            label = { Text(stringResource(R.string.label_ip_address)) }, singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
+
+        AddressInputField(
+            ip = ip,
+            onIpChange = { ip = it },
+            onPortChange = { port = it },
+            suggestions = savedAddresses,
+            onRemoveSuggestion = { addr ->
+                SavedAdbAddresses.remove(context, addr)
+                savedAddresses = SavedAdbAddresses.getAll(context)
+            },
+            isError = !isIpValid,
+            supportingText = if (!isIpValid) {
+                { Text(stringResource(R.string.err_invalid_ip_format), color = MaterialTheme.colorScheme.error) }
+            } else null
         )
+
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
-            value = port, onValueChange = { port = it.filter(Char::isDigit) },
-            label = { Text(stringResource(R.string.label_port)) }, singleLine = true,
+            value = port,
+            onValueChange = { input -> port = input.filter(Char::isDigit) },
+            label = { Text(stringResource(R.string.label_port)) },
+            placeholder = { Text("5555") },
+            singleLine = true,
             shape = RoundedCornerShape(12.dp),
+            isError = !isPortValid,
+            supportingText = if (!isPortValid) {
+                { Text(stringResource(R.string.err_invalid_port_range), color = MaterialTheme.colorScheme.error) }
+            } else null,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
+
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = { onConnect(ip.trim(), port.trim()) },
-            enabled = isValid,
+            onClick = {
+                val finalIp = ip.trim()
+                val finalPort = port.trim().ifEmpty { "5555" }
+                SavedAdbAddresses.add(context, "$finalIp:$finalPort")
+                onConnect(finalIp, finalPort)
+            },
+            enabled = isFormValid,
             modifier = Modifier.fillMaxWidth()
-        ) { Text(stringResource(R.string.btn_connect)) }
+        ) {
+            Text(stringResource(R.string.btn_connect))
+        }
     }
 }
 
@@ -381,11 +451,17 @@ private fun ManualTlsConnectStep(
     onConnect: (String, String, ((Boolean, String?) -> Unit)?) -> Unit,
     onDismissAfterConnected: () -> Unit
 ) {
-    var ip by remember { mutableStateOf(initial.ip) }
+    val context = LocalContext.current
+    var savedIps by remember { mutableStateOf(SavedAdbAddresses.getAllIps(context)) }
+    val defaultIp = remember {
+        if (initial.ip.isNotBlank()) initial.ip
+        else savedIps.firstOrNull() ?: ""
+    }
+    var ip by remember { mutableStateOf(defaultIp) }
     var port by remember { mutableStateOf(initial.port) }
     var isConnecting by remember { mutableStateOf(false) }
     var autoConnectAttempted by remember(initial.serviceName, initial.isJustPaired) { mutableStateOf(false) }
-    val isValid = ip.isNotBlank() && port.toIntOrNull() != null
+    val isValid = isValidIp(ip) && isValidPort(port)
 
     val matchedDeviceId = extractDeviceIdentity(initial.serviceName)
     val autoConnectCandidate = discoveryDevices.firstOrNull {
@@ -401,6 +477,7 @@ private fun ManualTlsConnectStep(
         onConnect(ip.trim(), port.trim()) { success, _ ->
             isConnecting = false
             if (success) {
+                SavedAdbAddresses.addIp(context, ip.trim())
                 onDismissAfterConnected()
             }
         }
@@ -425,15 +502,21 @@ private fun ManualTlsConnectStep(
         }
 
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = ip, onValueChange = { ip = it },
-            label = { Text(stringResource(R.string.label_ip_address)) }, singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
+        AddressInputField(
+            ip = ip,
+            onIpChange = { ip = it },
+            onPortChange = { port = it },
+            suggestions = savedIps,
+            onRemoveSuggestion = { addr ->
+                SavedAdbAddresses.removeIp(context, addr)
+                savedIps = SavedAdbAddresses.getAllIps(context)
+            }
         )
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = port, onValueChange = { port = it.filter(Char::isDigit) },
+            isError = port.isNotEmpty() && !isValidPort(port),
+            supportingText = { if (port.isNotEmpty() && !isValidPort(port)) Text(stringResource(R.string.err_invalid_port_range)) },
             label = { Text(stringResource(R.string.label_port)) }, singleLine = true,
             shape = RoundedCornerShape(12.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -461,9 +544,12 @@ private fun ManualTlsConnectStep(
         Button(
             onClick = {
                 isConnecting = true
-                onConnect(ip.trim(), port.trim()) { success, _ ->
+                val finalIp = ip.trim()
+                val finalPort = port.trim()
+                onConnect(finalIp, finalPort) { success, _ ->
                     isConnecting = false
                     if (success) {
+                        SavedAdbAddresses.addIp(context, finalIp)
                         onDismissAfterConnected()
                     }
                 }
@@ -491,20 +577,38 @@ private fun ManualTlsPairStep(
     onPair: (String, String, String, (Boolean, String) -> Unit) -> Unit,
     onPaired: (String, String) -> Unit
 ) {
-    var ip by remember { mutableStateOf(initial.ip) }
+    val context = LocalContext.current
+    var savedIps by remember { mutableStateOf(SavedAdbAddresses.getAllIps(context)) }
+    val defaultIp = remember {
+        if (initial.ip.isNotBlank()) initial.ip
+        else savedIps.firstOrNull() ?: ""
+    }
+    var ip by remember { mutableStateOf(defaultIp) }
     var port by remember { mutableStateOf(initial.port) }
     var code by remember { mutableStateOf(initial.code) }
     var isPairing by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    val isValid = ip.isNotBlank() && port.toIntOrNull() != null && code.isNotBlank()
+    val isValid = isValidIp(ip) && isValidPort(port) && isValidPairingCode(code)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         StepHeader(stringResource(R.string.discovery_pair_device), onBack)
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(value = ip, onValueChange = { ip = it }, label = { Text(stringResource(R.string.label_ip_address)) }, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth())
+
+        AddressInputField(
+            ip = ip,
+            onIpChange = { ip = it },
+            onPortChange = { port = it },
+            suggestions = savedIps,
+            onRemoveSuggestion = { addr ->
+                SavedAdbAddresses.removeIp(context, addr)
+                savedIps = SavedAdbAddresses.getAllIps(context)
+            }
+        )
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = port, onValueChange = { port = it.filter(Char::isDigit) },
+            isError = port.isNotEmpty() && !isValidPort(port),
+            supportingText = { if (port.isNotEmpty() && !isValidPort(port)) Text(stringResource(R.string.err_invalid_port_range)) },
             label = { Text(stringResource(R.string.discovery_pairing_port)) }, singleLine = true,
             shape = RoundedCornerShape(12.dp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -512,9 +616,10 @@ private fun ManualTlsPairStep(
         )
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
-            value = code, onValueChange = { code = it.filter(Char::isDigit).take(6) },
+            value = code, onValueChange = { code = it.filter { digit -> digit in '0'..'9' }.take(6) },
             label = { Text(stringResource(R.string.discovery_pairing_code)) }, singleLine = true,
             shape = RoundedCornerShape(12.dp),
+            supportingText = { Text(stringResource(R.string.pairing_code_hint)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
@@ -529,10 +634,17 @@ private fun ManualTlsPairStep(
             onClick = {
                 isPairing = true
                 errorMsg = null
-                onPair(ip.trim(), port.trim(), code.trim()) { success, msg ->
+                val finalIp = ip.trim()
+                val finalPort = port.trim()
+                val finalCode = code.trim()
+                onPair(finalIp, finalPort, finalCode) { success, msg ->
                     isPairing = false
-                    if (success) onPaired(ip.trim(), "")
-                    else errorMsg = msg
+                    if (success) {
+                        SavedAdbAddresses.addIp(context, finalIp)
+                        onPaired(finalIp, "")
+                    } else {
+                        errorMsg = msg
+                    }
                 }
             },
             enabled = isValid && !isPairing,
@@ -542,6 +654,140 @@ private fun ManualTlsPairStep(
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
             } else {
                 Text(stringResource(R.string.discovery_btn_pair))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddressInputField(
+    ip: String,
+    onIpChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    suggestions: List<String>,
+    onRemoveSuggestion: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    supportingText: @Composable (() -> Unit)? = null
+) {
+    var suggestionsExpanded by remember { mutableStateOf(false) }
+    // Preserve a typed host:port until blur; removing ':' on every keystroke
+    // incorrectly appends the remaining port digits to the host.
+    var addressText by remember { mutableStateOf(ip) }
+    var addressFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(ip, addressFocused) {
+        if (!addressFocused) addressText = ip
+    }
+    var showAllSuggestions by remember { mutableStateOf(false) }
+    var ipFieldWidthPx by remember { mutableStateOf(0) }
+
+    val filteredSuggestions = remember(ip, suggestions, showAllSuggestions) {
+        if (showAllSuggestions || ip.isBlank()) {
+            suggestions
+        } else {
+            val query = ip.trim()
+            suggestions.filter { item ->
+                item.substringBefore(":").contains(query, ignoreCase = true)
+            }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = addressText,
+            onValueChange = { input ->
+                addressText = input
+                val (parsedIp, parsedPort) = parseIpAndPort(input)
+                onIpChange(parsedIp)
+                if (parsedPort != null) {
+                    onPortChange(parsedPort)
+                }
+                showAllSuggestions = false
+                val query = parsedIp.trim()
+                val matches = suggestions.filter {
+                    it.substringBefore(":").contains(query, ignoreCase = true)
+                }
+                suggestionsExpanded = query.isNotBlank() && matches.isNotEmpty() && matches.any { it.substringBefore(":") != query }
+            },
+            label = { Text(stringResource(R.string.label_ip_address)) },
+            placeholder = {
+                Text(
+                    stringResource(R.string.adb_ip_placeholder),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                )
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            isError = isError || (ip.isNotEmpty() && !isValidIp(ip)),
+            supportingText = supportingText ?: {
+                if (ip.isNotEmpty() && !isValidIp(ip)) Text(stringResource(R.string.err_invalid_ip_format))
+            },
+            trailingIcon = {
+                if (suggestions.isNotEmpty()) {
+                    IconButton(onClick = {
+                        showAllSuggestions = true
+                        suggestionsExpanded = !suggestionsExpanded
+                    }) {
+                        Icon(
+                            imageVector = if (suggestionsExpanded) Icons.Filled.ArrowDropUp else Icons.Filled.ArrowDropDown,
+                            contentDescription = stringResource(R.string.cd_expand_collapse)
+                        )
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged {
+                    addressFocused = it.isFocused
+                    if (!it.isFocused) addressText = ip
+                }
+                .onGloballyPositioned { coordinates ->
+                    ipFieldWidthPx = coordinates.size.width
+                }
+        )
+
+        DropdownMenu(
+            expanded = suggestionsExpanded && filteredSuggestions.isNotEmpty(),
+            onDismissRequest = { suggestionsExpanded = false },
+            properties = PopupProperties(focusable = false),
+            modifier = Modifier.width(with(LocalDensity.current) { ipFieldWidthPx.toDp() })
+        ) {
+            filteredSuggestions.forEach { item ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            item,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1
+                        )
+                    },
+                    onClick = {
+                        val (parsedIp, parsedPort) = parseIpAndPort(item)
+                        addressText = parsedIp
+                        onIpChange(parsedIp)
+                        if (parsedPort != null) {
+                            onPortChange(parsedPort)
+                        }
+                        suggestionsExpanded = false
+                    },
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                onRemoveSuggestion(item)
+                                if (suggestions.size <= 1) {
+                                    suggestionsExpanded = false
+                                }
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.cd_remove),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                )
             }
         }
     }

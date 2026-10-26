@@ -3,9 +3,15 @@ package io.github.rhythmcache.dioxamine.adb.builtin
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import io.github.rhythmcache.dioxamine.adb.shell.ShellScreen
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -14,6 +20,8 @@ import io.github.rhythmcache.dioxamine.adb.AdbViewModel
 
 import io.github.rhythmcache.dioxamine.adb.builtin.filemanager.FileManagerScreen
 import io.github.rhythmcache.dioxamine.adb.builtin.filemanager.FileManagerTile
+import io.github.rhythmcache.dioxamine.adb.builtin.logcat.LogcatScreen
+import io.github.rhythmcache.dioxamine.adb.builtin.logcat.LogcatTile
 import io.github.rhythmcache.dioxamine.adb.builtin.misc.MiscScreen
 import io.github.rhythmcache.dioxamine.adb.builtin.misc.MiscTile
 import io.github.rhythmcache.dioxamine.adb.builtin.packagemanager.PackageManagerScreen
@@ -29,22 +37,17 @@ import io.github.rhythmcache.dioxamine.adb.builtin.screencap.ScreencapTile
 import io.github.rhythmcache.dioxamine.adb.builtin.touchpad.TouchpadScreen
 import io.github.rhythmcache.dioxamine.adb.builtin.touchpad.TouchpadTile
 
-sealed class BuiltInSubScreen {
-    object TilesList : BuiltInSubScreen()
-    object DeviceInfo : BuiltInSubScreen()
-    object RemoteControl : BuiltInSubScreen()
-    object Touchpad : BuiltInSubScreen()
-    object FileManager : BuiltInSubScreen()
-    object PackageManager : BuiltInSubScreen()
-    object ProcessManager : BuiltInSubScreen()
-    object Misc : BuiltInSubScreen()
-    object Screenshot : BuiltInSubScreen()
-    object Reboot : BuiltInSubScreen()
+enum class BuiltInSubScreen {
+    TilesList, DeviceInfo, RemoteControl, Touchpad, FileManager, PackageManager,
+    ProcessManager, Logcat, Misc, Screenshot, Reboot, Terminal,
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BuiltInActionsTab(vm: AdbViewModel) {
-    var activeSubScreen by remember { mutableStateOf<BuiltInSubScreen>(BuiltInSubScreen.TilesList) }
+    var activeSubScreen by rememberSaveable { mutableStateOf(BuiltInSubScreen.TilesList) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val overviewGridState = rememberLazyGridState()
     val isConnected = vm.activeClient() != null
 
     // Return to tools list when on a sub-screen
@@ -53,79 +56,22 @@ fun BuiltInActionsTab(vm: AdbViewModel) {
     }
 
     when (activeSubScreen) {
-        BuiltInSubScreen.TilesList -> {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (!isConnected) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.connect_device_warning),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                    }
-                }
-                item {
-                    DeviceInformationTile(
-                        vm = vm,
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.DeviceInfo }
-                    )
-                }
-                item {
-                    RemoteControlTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.RemoteControl }
-                    )
-                }
-                item {
-                    TouchpadTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.Touchpad }
-                    )
-                }
-                item {
-                    FileManagerTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.FileManager }
-                    )
-                }
-                item {
-                    PackageManagerTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.PackageManager }
-                    )
-                }
-                item {
-                    ProcessManagerTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.ProcessManager }
-                    )
-                }
-                item {
-                    MiscTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.Misc }
-                    )
-                }
-                item {
-                    ScreencapTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.Screenshot }
-                    )
-                }
-                item {
-                    RebootTile(
-                        isConnected = isConnected,
-                        onClick = { activeSubScreen = BuiltInSubScreen.Reboot }
-                    )
-                }
-            }
+        BuiltInSubScreen.TilesList -> OverviewDashboard(
+            vm = vm,
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            gridState = overviewGridState,
+            onOpenTool = { activeSubScreen = it },
+        )
+        BuiltInSubScreen.Terminal -> Column(Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = { Text(stringResource(R.string.tool_terminal)) },
+                navigationIcon = { IconButton(onClick = { activeSubScreen = BuiltInSubScreen.TilesList }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_nav_back))
+                } },
+                windowInsets = WindowInsets(0, 0, 0, 0),
+            )
+            ShellScreen(vm)
         }
         BuiltInSubScreen.DeviceInfo -> {
             DeviceInformationDetailScreen(
@@ -160,6 +106,12 @@ fun BuiltInActionsTab(vm: AdbViewModel) {
         }
         BuiltInSubScreen.ProcessManager -> {
             ProcessManagerScreen(
+                vm = vm,
+                onBack = { activeSubScreen = BuiltInSubScreen.TilesList }
+            )
+        }
+        BuiltInSubScreen.Logcat -> {
+            LogcatScreen(
                 vm = vm,
                 onBack = { activeSubScreen = BuiltInSubScreen.TilesList }
             )

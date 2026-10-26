@@ -28,18 +28,14 @@ sealed class OperationStatus {
     data class Failed(val opLabel: String, val message: String) : OperationStatus()
 }
 
-sealed class FastbootSubScreen {
-    object TilesList : FastbootSubScreen()
-    object Reboot : FastbootSubScreen()
-    object FlashImage : FastbootSubScreen()
-    object BootImage : FastbootSubScreen()
-    object LockState : FastbootSubScreen()
-    object Variables : FastbootSubScreen()
+enum class FastbootSubScreen {
+    TilesList, Reboot, FlashImage, BootImage, LockState, Variables,
 }
 
 /** Commands that require a local file to be attached before they can be sent. */
 sealed class PendingFileCommand {
     data class Flash(val partition: String) : PendingFileCommand()
     object Boot : PendingFileCommand()
+    object Stage : PendingFileCommand()
     data class Fetch(val partition: String) : PendingFileCommand()
 }

@@ -1,6 +1,8 @@
 package io.github.rhythmcache.dioxamine.adb.discovery
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -13,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.stringResource
@@ -102,6 +105,7 @@ fun QrPairingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -114,7 +118,6 @@ fun QrPairingScreen(
                         Spacer(Modifier.height(12.dp))
                         Text(stringResource(R.string.qr_starting_server), style = MaterialTheme.typography.bodyMedium)
                     } else {
-                        val primaryColor = MaterialTheme.colorScheme.primary
                         val logoPainter = remember(context) {
                             runCatching {
                                 val drawable = context.packageManager.getApplicationIcon(context.packageName)
@@ -128,7 +131,8 @@ fun QrPairingScreen(
 
                         val painter = rememberQrCodePainter(payload) {
                             colors {
-                                dark = QrBrush.solid(primaryColor)
+                                dark = QrBrush.solid(Color.Black)
+                                light = QrBrush.solid(Color.White)
                             }
                             if (logoPainter != null) {
                                 logo {
@@ -146,8 +150,8 @@ fun QrPairingScreen(
                             errorCorrectionLevel = QrErrorCorrectionLevel.High
                         }
                         Surface(
-                            color = androidx.compose.ui.graphics.Color.White,
-                            contentColor = androidx.compose.ui.graphics.Color.Black,
+                            color = Color.White,
+                            contentColor = Color.Black,
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                             shadowElevation = 4.dp
                         ) {

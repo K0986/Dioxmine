@@ -3,6 +3,7 @@ package io.github.rhythmcache.dioxamine.adb
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import androidx.compose.runtime.getValue
@@ -21,9 +22,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import io.github.rhythmcache.dioxamine.adb.discovery.LocalAdbDetector
 import io.github.rhythmcache.dioxamine.adb.discovery.LocalAdbTarget
+import io.github.rhythmcache.dioxamine.scrcpy.ScrcpyDiscoveryCache
 import java.io.File
 
-class AdbViewModel(private val keyDir: File) : ViewModel() {
+class AdbViewModel(
+    private val keyDir: File,
+    private val context: Context? = null
+) : ViewModel() {
+
+    private val prefs by lazy {
+        context?.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    }
 
     private val keyManager = AdbKeyManager(keyDir)
 
@@ -103,14 +112,30 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(1000)
             while (isActive) {
-                if (!isLocalhostConnected() && localAdbPromptTarget == null) {
+                val detectEnabled = prefs?.getBoolean("adb_detect_localhost", true) ?: true
+                val autoConnect = prefs?.getBoolean("adb_autoconnect_localhost", false) ?: false
+
+                if (!detectEnabled) {
+                    if (localAdbPromptTarget != null) {
+                        withContext(Dispatchers.Main) {
+                            localAdbPromptTarget = null
+                        }
+                    }
+                } else if (!isLocalhostConnected() && localAdbPromptTarget == null) {
                     val target = LocalAdbDetector.detect()
                     if (target != null) {
-                        val now = System.currentTimeMillis()
-                        val isDismissed = (target.port == dismissedLocalPort && now < dismissedUntilMs)
-                        if (!isDismissed && !isLocalhostConnected()) {
+                        if (autoConnect) {
                             withContext(Dispatchers.Main) {
-                                localAdbPromptTarget = target
+                                localAdbPromptTarget = null
+                            }
+                            connectTcpDirect("127.0.0.1", target.port)
+                        } else {
+                            val now = System.currentTimeMillis()
+                            val isDismissed = (target.port == dismissedLocalPort && now < dismissedUntilMs)
+                            if (!isDismissed && !isLocalhostConnected()) {
+                                withContext(Dispatchers.Main) {
+                                    localAdbPromptTarget = target
+                                }
                             }
                         }
                     } else {
@@ -120,6 +145,26 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
                     }
                 }
                 kotlinx.coroutines.delay(10000)
+            }
+        }
+    }
+
+    fun triggerLocalAdbCheck() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val detectEnabled = prefs?.getBoolean("adb_detect_localhost", true) ?: true
+            val autoConnect = prefs?.getBoolean("adb_autoconnect_localhost", false) ?: false
+            if (detectEnabled && !isLocalhostConnected()) {
+                val target = LocalAdbDetector.detect() ?: return@launch
+                if (autoConnect) {
+                    withContext(Dispatchers.Main) {
+                        localAdbPromptTarget = null
+                    }
+                    connectTcpDirect("127.0.0.1", target.port)
+                } else if (localAdbPromptTarget == null) {
+                    withContext(Dispatchers.Main) {
+                        localAdbPromptTarget = target
+                    }
+                }
             }
         }
     }
@@ -150,11 +195,7 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
     fun connectLocalAdb() {
         val target = localAdbPromptTarget ?: return
         localAdbPromptTarget = null
-        if (target.isTls) {
-            connectTls("127.0.0.1", target.port)
-        } else {
-            connectTcpDirect("127.0.0.1", target.port)
-        }
+        connectTcpDirect("127.0.0.1", target.port)
     }
 
     private fun handleDeadConnection(id: String, conn: DeviceConnection) {
@@ -236,7 +277,8 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
                     apiLevel = details.apiLevel,
                     model = details.model,
                     mode = client.deviceMode,
-                    isRoot = details.isRoot
+                    isRoot = details.isRoot,
+                    uniqueId = details.uniqueId ?: id
                 )
                 if (activeDeviceId == null) activeDeviceId = id
             } catch (e: Exception) {
@@ -277,7 +319,8 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
                     apiLevel = details.apiLevel,
                     model = details.model,
                     mode = client.deviceMode,
-                    isRoot = details.isRoot
+                    isRoot = details.isRoot,
+                    uniqueId = details.uniqueId ?: id
                 )
                 if (activeDeviceId == null) activeDeviceId = id
             } catch (e: Exception) {
@@ -331,7 +374,8 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
                     apiLevel = details.apiLevel,
                     model = details.model,
                     mode = client.deviceMode,
-                    isRoot = details.isRoot
+                    isRoot = details.isRoot,
+                    uniqueId = details.uniqueId ?: serial
                 )
                 if (activeDeviceId == null) activeDeviceId = id
             } catch (e: Exception) {
@@ -366,12 +410,14 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
                     apiLevel = details.apiLevel,
                     model = details.model,
                     mode = client.deviceMode,
-                    isRoot = details.isRoot
+                    isRoot = details.isRoot,
+                    uniqueId = details.uniqueId ?: id
                 )
                 if (activeDeviceId == null) activeDeviceId = id
                 onResult?.invoke(true, null)
             } catch (e: io.github.rhythmcache.adb.AdbException.NotPaired) {
                 devices.remove(id)
+                ScrcpyDiscoveryCache.clear(id)
                 val err = "Device not paired. Pair it first."
                 pairingError = err
                 onResult?.invoke(false, err)
@@ -410,6 +456,7 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
                 try { conn.client?.close() } catch (_: Exception) {}
             }
             devices.remove(id)
+            ScrcpyDiscoveryCache.clear(id)
             nativeOutputs.clear()
             runningCommands.clear()
             flashState = FlashUiState.Idle
@@ -560,6 +607,9 @@ class AdbViewModel(private val keyDir: File) : ViewModel() {
             }
         }
     }
+
+    /** Returns standard PKCS#8 PEM formatted private key for exporting (~/.android/adbkey). */
+    fun getPrivateKeyPem(): String? = keyManager.getPrivateKeyPem()
 
     fun dismissDaemonDialog() {
         daemonDialogMessage = null

@@ -29,330 +29,28 @@ import io.github.rhythmcache.dioxamine.adb.discovery.QrPairingScreen
 import io.github.rhythmcache.dioxamine.adb.shell.ShellScreen
 import io.github.rhythmcache.dioxamine.core.*
 import io.github.rhythmcache.adb.AdbDeviceMode
-import io.github.rhythmcache.dioxamine.plugin.PluginDialogGate
-import io.github.rhythmcache.dioxamine.plugin.PluginPermissionGate
-import io.github.rhythmcache.dioxamine.plugin.PluginRepository
-import io.github.rhythmcache.dioxamine.plugin.PluginRunnerScreen
-import io.github.rhythmcache.dioxamine.plugin.PluginSafBridge
-import io.github.rhythmcache.dioxamine.plugin.PluginsTab
 
-private fun parseIpAndPort(input: String): Pair<String, String?> {
-    val trimmed = input.trim()
-    if (trimmed.contains(":")) {
-        val parts = trimmed.split(":")
-        if (parts.size == 2) {
-            return Pair(parts[0].trim(), parts[1].trim())
-        }
-    }
-    return Pair(trimmed, null)
-}
-
-private fun isValidIp(ip: String): Boolean {
-    if (ip.equals("localhost", ignoreCase = true)) return true
-    val ipv4Regex = Regex("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$")
-    return ipv4Regex.matches(ip)
-}
-
-private fun isValidPort(portStr: String): Boolean {
-    val p = portStr.toIntOrNull() ?: return false
-    return p in 1..65535
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdbScreen(
-    vm: AdbViewModel,
-    pluginRepo: PluginRepository,
-    permissionGate: PluginPermissionGate,
-    dialogGate: PluginDialogGate,
-    safBridge: PluginSafBridge,
-    onPluginActiveChange: (Boolean) -> Unit = {},
-) {
-    var subTab by remember { mutableStateOf(0) }
-    var activePluginId by remember { mutableStateOf<String?>(null) }
-    val activeConn = vm.devices[vm.activeDeviceId]
-    val mode = activeConn?.mode ?: AdbDeviceMode.UNKNOWN
+fun AdbScreen(vm: AdbViewModel) {
+    val mode = vm.devices[vm.activeDeviceId]?.mode ?: AdbDeviceMode.UNKNOWN
 
-    LaunchedEffect(activePluginId) {
-        onPluginActiveChange(activePluginId != null)
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            onPluginActiveChange(false)
-        }
-    }
-
-    // Return to Built-in sub-tab when on Shell or Plugins tab
-    BackHandler(enabled = activePluginId == null && subTab != 0) {
-        subTab = 0
-    }
-
-    vm.daemonDialogMessage?.let { msg ->
+    vm.daemonDialogMessage?.let { message ->
         AlertDialog(
             onDismissRequest = { vm.dismissDaemonDialog() },
             title = { Text(stringResource(R.string.daemon_dialog_title)) },
-            text = { Text(msg) },
-            confirmButton = {
-                TextButton(onClick = { vm.dismissDaemonDialog() }) {
-                    Text(stringResource(R.string.btn_ok))
-                }
-            }
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { vm.dismissDaemonDialog() }) { Text(stringResource(R.string.btn_ok)) } },
         )
     }
 
-    if (activePluginId != null) {
-        PluginRunnerScreen(
-            pluginId = activePluginId!!,
-            vm = vm,
-            repo = pluginRepo,
-            permissionGate = permissionGate,
-            dialogGate = dialogGate,
-            safBridge = safBridge,
-            onBack = { activePluginId = null }
-        )
-    } else {
-        Column(modifier = Modifier.fillMaxSize()) {
-            DeviceConnectorCard(vm)
-
-            when (mode) {
-                AdbDeviceMode.SIDELOAD -> {
-                    SideloadFlashScreen(vm)
-                }
-                AdbDeviceMode.RESCUE -> {
-                    RescueScreen(vm)
-                }
-                else -> {
-                    PrimaryTabRow(selectedTabIndex = subTab) {
-                        Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text(stringResource(R.string.adb_subtab_builtin)) })
-                        Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text(stringResource(R.string.adb_subtab_adb_shell)) })
-                        Tab(selected = subTab == 2, onClick = { subTab = 2 }, text = { Text(stringResource(R.string.adb_subtab_plugins)) })
-                    }
-
-                    when (subTab) {
-                        0 -> BuiltInActionsTab(vm)
-                        1 -> ShellScreen(vm)
-                        2 -> PluginsTab(
-                            repo = pluginRepo,
-                            onOpenPlugin = { pluginId ->
-                                activePluginId = pluginId
-                            }
-                        )
-                    }
-                }
+    when (mode) {
+        AdbDeviceMode.SIDELOAD, AdbDeviceMode.RESCUE -> Column(Modifier.fillMaxSize()) {
+            DeviceConnectorCard(vm, Modifier.padding(16.dp))
+            Box(Modifier.weight(1f)) {
+                if (mode == AdbDeviceMode.SIDELOAD) SideloadFlashScreen(vm) else RescueScreen(vm)
             }
         }
-    }
-}
-
-@Composable
-fun DeviceConnectorCard(vm: AdbViewModel) {
-    val context = LocalContext.current
-    var expanded by remember { mutableStateOf(false) }
-    var showDiscoverySheet by remember { mutableStateOf(false) }
-    var showAddTcpDialog by remember { mutableStateOf(false) }
-    var showQrPairing by remember { mutableStateOf(false) }
-
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                if (vm.devices.isEmpty()) {
-                    Row(
-                        modifier = Modifier.weight(1f).clickable { expanded = !expanded },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Filled.Devices, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            stringResource(R.string.no_devices_connected),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        vm.devices.values.forEach { conn ->
-                            val isActive = conn.id == vm.activeDeviceId
-                            val isConnected = conn.state is ConnectionState.Connected
-                            FilterChip(
-                                selected = isActive,
-                                onClick = { if (isConnected) vm.setActiveDevice(conn.id) },
-                                enabled = isConnected,
-                                label = {
-                                    val sideloadStr = stringResource(R.string.mode_sideload)
-                                    val recoveryStr = stringResource(R.string.mode_recovery)
-                                    val rescueStr = stringResource(R.string.mode_rescue)
-                                    val labelText = when (conn.mode) {
-                                        AdbDeviceMode.SIDELOAD -> "${conn.label} [$sideloadStr]"
-                                        AdbDeviceMode.RECOVERY -> "${conn.label} [$recoveryStr]"
-                                        AdbDeviceMode.RESCUE -> "${conn.label} [$rescueStr]"
-                                        else -> conn.label
-                                    }
-                                    Text(
-                                        labelText,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        if (conn.transport == DeviceTransport.USB) Icons.Filled.Usb else Icons.Filled.Wifi,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { showQrPairing = true }) {
-                        Icon(Icons.Filled.QrCode, contentDescription = stringResource(R.string.cd_pair_qr))
-                    }
-                    IconButton(onClick = { showDiscoverySheet = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.cd_add_device))
-                    }
-                    IconButton(onClick = { expanded = !expanded }) {
-                        Icon(
-                            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = stringResource(R.string.cd_expand_collapse)
-                        )
-                    }
-                }
-            }
-
-            AnimatedVisibility(visible = expanded) {
-                Column {
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(8.dp))
-
-                    if (vm.devices.isEmpty()) {
-                        Text(
-                            stringResource(R.string.no_devices_added_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        vm.devices.values.forEach { conn ->
-                            DeviceRow(conn, vm)
-                            Spacer(Modifier.height(4.dp))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showAddTcpDialog) {
-        val isIpValid = vm.newIp.isEmpty() || isValidIp(vm.newIp)
-        val isPortValid = vm.newPort.isEmpty() || isValidPort(vm.newPort)
-        val isFormValid = vm.newIp.isNotBlank() && isValidIp(vm.newIp) && isValidPort(vm.newPort)
-
-        AlertDialog(
-            onDismissRequest = { showAddTcpDialog = false },
-            title = { Text(stringResource(R.string.dialog_add_tcp_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = vm.newIp,
-                        onValueChange = { input ->
-                            val (parsedIp, parsedPort) = parseIpAndPort(input)
-                            vm.newIp = parsedIp
-                            if (parsedPort != null) {
-                                vm.newPort = parsedPort
-                            }
-                        },
-                        label = { Text(stringResource(R.string.label_ip_address)) },
-                        placeholder = { Text(stringResource(R.string.adb_ip_placeholder)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        isError = !isIpValid,
-                        supportingText = if (!isIpValid) {
-                            { Text(stringResource(R.string.err_invalid_ip_format), color = MaterialTheme.colorScheme.error) }
-                        } else null,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = vm.newPort,
-                        onValueChange = { input ->
-                            vm.newPort = input.filter { it.isDigit() }
-                        },
-                        label = { Text(stringResource(R.string.label_port)) },
-                        placeholder = { Text("5555") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        isError = !isPortValid,
-                        supportingText = if (!isPortValid) {
-                            { Text(stringResource(R.string.err_invalid_port_range), color = MaterialTheme.colorScheme.error) }
-                        } else null,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        vm.connectTcp()
-                        showAddTcpDialog = false
-                    },
-                    enabled = isFormValid
-                ) { Text(stringResource(R.string.btn_connect)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddTcpDialog = false }) { Text(stringResource(R.string.btn_cancel)) }
-            }
-        )
-    }
-
-    if (showDiscoverySheet) {
-        DiscoverySheet(vm, onDismiss = { showDiscoverySheet = false })
-    }
-
-    if (showQrPairing) {
-        QrPairingScreen(
-            keyDir = context.filesDir,
-            onBack = { showQrPairing = false },
-            onPairedAndDiscoverable = { host, port ->
-                showQrPairing = false
-                vm.connectTls(host, port)
-            }
-        )
-    }
-
-    if (!showDiscoverySheet && !showQrPairing) {
-        vm.localAdbPromptTarget?.let { target ->
-            AlertDialog(
-                onDismissRequest = { vm.dismissLocalAdbPrompt(false) },
-                icon = { Icon(Icons.Filled.Devices, contentDescription = null) },
-                title = { Text(stringResource(R.string.local_adb_detected_title)) },
-                text = {
-                    Text(stringResource(R.string.local_adb_detected_msg, target.port))
-                },
-                confirmButton = {
-                    Button(onClick = { vm.connectLocalAdb() }) {
-                        Text(stringResource(R.string.btn_connect))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { vm.dismissLocalAdbPrompt(true) }) {
-                        Text(stringResource(R.string.btn_dismiss))
-                    }
-                }
-            )
-        }
+        else -> BuiltInActionsTab(vm)
     }
 }
 
@@ -462,9 +160,11 @@ fun DeviceRow(conn: DeviceConnection, vm: AdbViewModel) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     OutlinedTextField(
                                         value = tcpPortInput,
-                                        onValueChange = { tcpPortInput = it },
+                                        onValueChange = { tcpPortInput = it.filter(Char::isDigit).take(5) },
                                         singleLine = true,
                                         label = { Text(stringResource(R.string.label_port)) },
+                                        isError = !isValidPort(tcpPortInput),
+                                        supportingText = { if (!isValidPort(tcpPortInput)) Text(stringResource(R.string.err_invalid_port_range)) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                                     )
                                 }
@@ -472,9 +172,8 @@ fun DeviceRow(conn: DeviceConnection, vm: AdbViewModel) {
                             confirmButton = {
                                 TextButton(onClick = {
                                     showTcpDialog = false
-                                    val port = tcpPortInput.trim().toIntOrNull() ?: 5555
-                                    vm.switchTcpip(conn.id, port)
-                                }) {
+                                    vm.switchTcpip(conn.id, tcpPortInput.toInt())
+                                }, enabled = isValidPort(tcpPortInput)) {
                                     Text(stringResource(R.string.btn_restart))
                                 }
                             },
@@ -514,7 +213,7 @@ fun SideloadFlashScreen(vm: AdbViewModel) {
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri ->
         pickedUri = uri
-        pickedFileName = uri?.let { resolveDisplayName(context.contentResolver, it) }
+        pickedFileName = uri?.let { FileUtils.resolveDisplayName(context.contentResolver, it) }
     }
 
     var isStartingFlash by remember { mutableStateOf(false) }
@@ -595,7 +294,7 @@ fun SideloadFlashScreen(vm: AdbViewModel) {
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("${state.percent.toInt()}% - ${state.bytesTransferred / 1024 / 1024}MB / ${state.totalBytes / 1024 / 1024}MB")
+                Text("${state.percent.toInt()}% - ${formatFileSize(state.bytesTransferred)} / ${formatFileSize(state.totalBytes)}")
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = { vm.cancelFlash() }) { Text(stringResource(R.string.btn_cancel)) }
             }
@@ -652,15 +351,4 @@ fun RescueScreen(vm: AdbViewModel) {
             dismissButton = { TextButton(onClick = { showWipeConfirm = false }) { Text(stringResource(R.string.btn_cancel)) } }
         )
     }
-}
-
-fun resolveDisplayName(resolver: android.content.ContentResolver, uri: android.net.Uri): String? {
-    return try {
-        resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0) cursor.getString(idx) else null
-            } else null
-        }
-    } catch (_: Exception) { null }
 }

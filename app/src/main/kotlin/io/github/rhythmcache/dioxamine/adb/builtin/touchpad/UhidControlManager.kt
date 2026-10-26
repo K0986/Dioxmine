@@ -211,8 +211,8 @@ class UhidControlManager(
 
                 // Step 5: Synchronously register UHID Mouse and Keyboard BEFORE starting writer loop
                 AppLogger.i(TAG, "Registering UHID Mouse and Keyboard devices...")
-                activeControlStream.write(buildCreateDevicePacket(ID_MOUSE, 0x18d1, 0x0001, "Dioxamine Mouse", MOUSE_REPORT_DESC))
-                activeControlStream.write(buildCreateDevicePacket(ID_KEYBOARD, 0x18d1, 0x0002, "Dioxamine Keyboard", KEYBOARD_REPORT_DESC))
+                activeControlStream.write(buildCreateDevicePacket(ID_MOUSE, 0x18d1, 0x0001, "DuckPort Mouse", MOUSE_REPORT_DESC))
+                activeControlStream.write(buildCreateDevicePacket(ID_KEYBOARD, 0x18d1, 0x0002, "DuckPort Keyboard", KEYBOARD_REPORT_DESC))
 
                 // Step 6: Start unified high-efficiency writer loop with fair scheduling and CAS delta consumption
                 launch {

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="DuckPort logo concept"><g>
+    <path fill="#111C23" d="M111 273 C133 284 148 294 166 291 C182 288 191 277 191 260 L191 204 C191 154 227 118 276 118 C321 118 354 149 354 191 C354 225 333 249 303 263 L303 286 C315 316 310 346 291 368 C270 393 234 407 199 401 C146 393 105 352 105 303 C105 290 107 280 111 273Z"/>
+    <path fill="#111C23" d="M347 178 L397 197 Q408 201 404 211 Q402 216 394 218 L346 232 Q337 234 335 225 L335 188 Q335 179 347 178Z"/>
+    <circle cx="298" cy="181" r="10.5" fill="#F5F5ED"/>
+    <path d="M164 312 L189 334 L164 356" fill="none" stroke="#F5F5ED" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M219 356 H248" fill="none" stroke="#F5F5ED" stroke-width="16" stroke-linecap="round"/>
+  </g></svg>

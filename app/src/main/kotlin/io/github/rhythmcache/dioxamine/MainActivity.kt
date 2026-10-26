@@ -3,6 +3,7 @@ package io.github.rhythmcache.dioxamine
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -15,8 +16,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.ViewModel
@@ -28,6 +35,7 @@ import io.github.rhythmcache.dioxamine.fastboot.FastbootViewModel
 import io.github.rhythmcache.dioxamine.fastboot.ListenForFastbootDevices
 import io.github.rhythmcache.dioxamine.scrcpy.ScrcpyScreen
 import io.github.rhythmcache.dioxamine.settings.SettingsScreen
+import io.github.rhythmcache.dioxamine.plugin.PluginsScreen
 import io.github.rhythmcache.adb.AdbDeviceMode
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -39,13 +47,40 @@ import java.io.File
 // ---------------------------------------------------------------------------
 
 enum class Tab(@StringRes val labelRes: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    ADB(R.string.tab_adb, Icons.Filled.PhoneAndroid),
-    SCRCPY(R.string.tab_scrcpy, Icons.AutoMirrored.Filled.ScreenShare),
-    FASTBOOT(R.string.tab_fastboot, Icons.Filled.Bolt),
+    ADB(R.string.nav_overview, Icons.Filled.Dashboard),
+    SCRCPY(R.string.nav_mirror, Icons.AutoMirrored.Filled.ScreenShare),
+    FASTBOOT(R.string.nav_flasher, Icons.Filled.Bolt),
+    PLUGINS(R.string.tab_plugins, Icons.Filled.Extension),
     SETTINGS(R.string.tab_settings, Icons.Filled.Settings)
 }
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        // Owner-token pattern: prevents a disposing/unmounting screen from clobbering a newly active
+        // screen's key interceptor during overlapping Compose transitions or recomposition.
+        private var interceptorOwner: Any? = null
+        private var activeInterceptor: ((KeyEvent) -> Boolean)? = null
+
+        fun setKeyEventInterceptor(owner: Any, interceptor: (KeyEvent) -> Boolean) {
+            interceptorOwner = owner
+            activeInterceptor = interceptor
+        }
+
+        fun clearKeyEventInterceptor(owner: Any) {
+            if (interceptorOwner === owner) {
+                interceptorOwner = null
+                activeInterceptor = null
+            }
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (activeInterceptor?.invoke(event) == true) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installSplashScreen()
@@ -61,8 +96,8 @@ class MainActivity : AppCompatActivity() {
             val prefsState = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
             var currentAppTheme by remember {
                 mutableStateOf(
-                    runCatching { AppTheme.valueOf(prefsState.getString("theme_mode", "SYSTEM") ?: "SYSTEM") }
-                        .getOrDefault(AppTheme.SYSTEM)
+                    runCatching { AppTheme.valueOf(prefsState.getString("theme_mode", "DARK") ?: "DARK") }
+                        .getOrDefault(AppTheme.DARK)
                 )
             }
 
@@ -73,8 +108,8 @@ class MainActivity : AppCompatActivity() {
             DisposableEffect(Unit) {
                 val listener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
                     if (key == "theme_mode") {
-                        currentAppTheme = runCatching { AppTheme.valueOf(prefs.getString("theme_mode", "SYSTEM") ?: "SYSTEM") }
-                            .getOrDefault(AppTheme.SYSTEM)
+                        currentAppTheme = runCatching { AppTheme.valueOf(prefs.getString("theme_mode", "DARK") ?: "DARK") }
+                            .getOrDefault(AppTheme.DARK)
                     } else if (key == "use_monet") {
                         currentUseMonet = prefs.getBoolean("use_monet", false)
                     }
@@ -93,11 +128,11 @@ class MainActivity : AppCompatActivity() {
 @Composable
 fun DioxamineApp(keyDir: File) {
     val context = LocalContext.current
-    var selectedTab by remember { mutableStateOf(Tab.ADB) }
+    var selectedTab by rememberSaveable { mutableStateOf(Tab.ADB) }
     val vm: AdbViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return AdbViewModel(keyDir) as T
+            return AdbViewModel(keyDir, context.applicationContext) as T
         }
     })
     val fastbootVm: FastbootViewModel = viewModel()
@@ -160,31 +195,78 @@ fun DioxamineApp(keyDir: File) {
         isScrcpyFullScreen = false
     }
 
-    Scaffold(
-        bottomBar = {
-            if (!hideBottomBar) {
-                NavigationBar {
-                    Tab.entries.forEach { tab ->
-                        NavigationBarItem(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
-                            icon = { Icon(tab.icon, contentDescription = stringResource(tab.labelRes)) },
-                            label = { Text(stringResource(tab.labelRes)) }
-                        )
+    val stateHolder = rememberSaveableStateHolder()
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val availableWidth = with(LocalDensity.current) { constraints.maxWidth.toDp() }
+        val useRail = availableWidth >= 720.dp && !hideBottomBar
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                if (!hideBottomBar && !useRail) {
+                    Column {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, tonalElevation = 0.dp) {
+                            Tab.entries.forEach { tab ->
+                                NavigationBarItem(
+                                    selected = selectedTab == tab,
+                                    onClick = { selectedTab = tab },
+                                    icon = { Icon(tab.icon, contentDescription = null) },
+                                    label = { Text(stringResource(tab.labelRes), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp)) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
-            }
-        }
-    ) { padding ->
-        Box(
-            modifier = if (hideBottomBar) Modifier.fillMaxSize()
-                       else Modifier.padding(padding).fillMaxSize()
-        ) {
-            when (selectedTab) {
-                Tab.ADB -> AdbScreen(vm, pluginRepo, permissionGate, dialogGate, safBridge, onPluginActiveChange = { isPluginActive = it })
-                Tab.SCRCPY -> ScrcpyScreen(vm, onFullScreenChange = { isScrcpyFullScreen = it })
-                Tab.FASTBOOT -> FastbootScreen(fastbootVm)
-                Tab.SETTINGS -> SettingsScreen(vm)
+            },
+        ) { padding ->
+            Row(
+                modifier = if (hideBottomBar) Modifier.fillMaxSize()
+                    else Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize(),
+            ) {
+                if (useRail) {
+                    NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest, modifier = Modifier.fillMaxHeight()) {
+                        Spacer(Modifier.height(24.dp))
+                        Tab.entries.forEach { tab ->
+                            NavigationRailItem(
+                                selected = selectedTab == tab,
+                                onClick = { selectedTab = tab },
+                                icon = { Icon(tab.icon, null) },
+                                label = { Text(stringResource(tab.labelRes), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp)) },
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (!hideBottomBar) WorkspaceHeader()
+                    // Keep forms readable on tablets while allowing mirroring to use all space.
+                    Box(Modifier.weight(1f).then(if (selectedTab == Tab.SCRCPY || hideBottomBar) Modifier.fillMaxWidth() else Modifier.widthIn(max = 1000.dp).fillMaxWidth())) {
+                        stateHolder.SaveableStateProvider(selectedTab.name) {
+                            when (selectedTab) {
+                                Tab.ADB -> AdbScreen(vm)
+                                Tab.SCRCPY -> ScrcpyScreen(vm, onFullScreenChange = { isScrcpyFullScreen = it }, onConnectDevice = { selectedTab = Tab.ADB })
+                                Tab.FASTBOOT -> FastbootScreen(fastbootVm)
+                                Tab.PLUGINS -> PluginsScreen(
+                                    vm = vm,
+                                    fastbootVm = fastbootVm,
+                                    pluginRepo = pluginRepo,
+                                    permissionGate = permissionGate,
+                                    dialogGate = dialogGate,
+                                    safBridge = safBridge,
+                                    onPluginActiveChange = { isPluginActive = it },
+                                )
+                                Tab.SETTINGS -> SettingsScreen(vm)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
